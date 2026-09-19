@@ -12,6 +12,8 @@ const state = {
   editingRuleId: '',
   editingFileId: '',
   lastScan: null,
+  baselines: [],
+  lastComparison: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -407,6 +409,267 @@ function renderScan(result) {
   el('hit-empty').classList.toggle('hidden', result.hits.length > 0);
 }
 
+// ───────────────────────── 基线与对比 ─────────────────────────
+
+const DIFF_META = {
+  added: { label: '新出现', className: 'df-added' },
+  removed: { label: '不再出现', className: 'df-removed' },
+  same: { label: '还在原位', className: 'df-same' },
+  moved: { label: '还在但挪了位置', className: 'df-moved' },
+};
+
+function diffMeta(status) {
+  return DIFF_META[status] || { label: status, className: '' };
+}
+
+async function loadBaselines() {
+  const payload = await request('/api/baselines');
+  state.baselines = payload.baselines || [];
+  renderBaselines();
+}
+
+function scopeText(scope) {
+  const parts = [];
+  parts.push(scope.ruleCode ? `规则 ${scope.ruleCode}` : '全部规则');
+  parts.push(scope.filePath ? `文件 ${scope.filePath}` : '全部文件');
+  if (scope.level) parts.push(`仅 ${scope.level}`);
+  return parts.join('　');
+}
+
+function renderBaselines() {
+  const body = el('baseline-body');
+  body.innerHTML = state.baselines.map((item) => `<tr>
+      <td>${escapeHtml(item.name)}</td>
+      <td class="mono">${escapeHtml(formatTime(item.savedAt))}</td>
+      <td>${escapeHtml(item.operator || '未署名')}</td>
+      <td><strong>${item.total}</strong> 条</td>
+      <td class="note-cell">${escapeHtml(scopeText(item.scope || {}))}</td>
+      <td class="actions">
+        <button type="button" class="link" data-baseline-compare="${escapeHtml(item.id)}">对比本轮</button>
+        <button type="button" class="link danger" data-baseline-delete="${escapeHtml(item.id)}">删除</button>
+      </td>
+    </tr>`).join('');
+  el('baseline-empty').classList.toggle('hidden', state.baselines.length > 0);
+
+  const select = el('baseline-pick');
+  const current = select.value;
+  select.innerHTML = '<option value="">选择一版基线来对比</option>'
+    + state.baselines.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}（${item.total} 条 · ${escapeHtml(formatTime(item.savedAt))}）</option>`).join('');
+  if (state.baselines.some((item) => item.id === current)) select.value = current;
+}
+
+// 把当前筛选范围当场扫一遍并存成基线，操作者取页面右上角填的名字
+async function saveCurrentBaseline() {
+  clearNotice();
+  clearFieldMarks();
+  const name = el('baseline-name').value.trim();
+  const operator = currentOperator();
+  if (!operator) {
+    notify('请先在右上角填写当前操作者，基线要记下是谁存的', 'error');
+    markField('operator');
+    return;
+  }
+  if (!name) {
+    notify('请给这版基线起个名字', 'error');
+    markField('baselineName');
+    return;
+  }
+  try {
+    const created = await request('/api/baselines', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        operator,
+        ruleId: el('scan-rule').value,
+        fileId: el('scan-file').value,
+        level: el('scan-level').value,
+      }),
+    });
+    el('baseline-name').value = '';
+    await loadBaselines();
+    el('baseline-pick').value = created.id;
+    // 存基线时服务端按同一范围重扫了一遍，顺手把这轮结果画到命中清单区
+    state.lastScan = created.scan;
+    renderScan(created.scan);
+    notify(`基线「${created.name}」已存好，当时命中 ${created.total} 条`, 'ok');
+  } catch (err) {
+    notify(err.message, 'error');
+    markField(err.field);
+  }
+}
+
+async function removeBaseline(id) {
+  const found = state.baselines.find((item) => item.id === id);
+  if (!window.confirm(`确定删除基线「${found ? found.name : ''}」吗？删除后不能再按它对比。`)) return;
+  try {
+    await request(`/api/baselines/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (state.lastComparison && state.lastComparison.baseline.id === id) {
+      el('compare-box').classList.add('hidden');
+      state.lastComparison = null;
+    }
+    notify('基线已删除', 'ok');
+    await loadBaselines();
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+async function runCompare(id) {
+  clearNotice();
+  const baselineId = id || el('baseline-pick').value;
+  if (!baselineId) {
+    notify('先在上面选择一版基线', 'error');
+    return;
+  }
+  try {
+    // 请求体不带范围，服务端沿用存基线时的规则、文件与级别条件，保证两轮口径一致
+    const result = await request(`/api/baselines/${encodeURIComponent(baselineId)}/compare`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    state.lastComparison = result;
+    el('baseline-pick').value = baselineId;
+    renderComparison(result);
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+function renderCompareFilters(result) {
+  const ruleSelect = el('compare-rule');
+  const ruleCurrent = ruleSelect.value;
+  const ruleKeys = [];
+  const ruleMap = new Map();
+  result.diff.entries.forEach((entry) => {
+    if (!ruleMap.has(entry.code)) {
+      ruleMap.set(entry.code, `${entry.code} ${entry.ruleName}`);
+      ruleKeys.push(entry.code);
+    }
+  });
+  ruleSelect.innerHTML = '<option value="">全部规则</option>'
+    + ruleKeys.map((code) => `<option value="${escapeHtml(code)}">${escapeHtml(ruleMap.get(code))}</option>`).join('');
+  if (ruleKeys.includes(ruleCurrent)) ruleSelect.value = ruleCurrent;
+
+  const fileSelect = el('compare-file');
+  const fileCurrent = fileSelect.value;
+  const paths = Array.from(new Set(result.diff.entries.map((entry) => entry.path))).sort();
+  fileSelect.innerHTML = '<option value="">全部文件</option>'
+    + paths.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  if (paths.includes(fileCurrent)) fileSelect.value = fileCurrent;
+}
+
+function renderComparison(result) {
+  const { counts } = result.diff;
+  const box = el('compare-box');
+  box.classList.remove('hidden');
+
+  el('compare-title').textContent = `按基线「${result.baseline.name}」对比本轮`;
+  el('compare-meta').innerHTML = `基线由 <strong>${escapeHtml(result.baseline.operator || '未署名')}</strong>`
+    + ` 存于 ${escapeHtml(formatTime(result.baseline.savedAt))}，当时命中 <strong>${counts.baselineTotal}</strong> 条`
+    + `（${escapeHtml(scopeText(result.baseline.scope || {}))}）；本轮扫描时刻 ${escapeHtml(formatTime(result.current.scannedAt))}`
+    + `，范围里规则 ${result.current.rulesUsed} 条、文件 ${result.current.filesInScope} 个，命中 <strong>${counts.currentTotal}</strong> 条。`;
+
+  const warningBox = el('compare-warning');
+  if (result.current.warning) {
+    warningBox.textContent = result.current.warning;
+    warningBox.classList.remove('hidden');
+  } else {
+    warningBox.classList.add('hidden');
+    warningBox.textContent = '';
+  }
+
+  el('compare-cards').innerHTML = `
+    <button type="button" class="compare-card df-added-card" data-quick-status="added">
+      <span class="compare-card-num">${counts.added}</span>
+      <span class="compare-card-label">新出现</span>
+      <span class="compare-card-sub">基线里没有，本轮冒出来</span>
+    </button>
+    <button type="button" class="compare-card df-removed-card" data-quick-status="removed">
+      <span class="compare-card-num">${counts.removed}</span>
+      <span class="compare-card-label">不再出现</span>
+      <span class="compare-card-sub">基线里有，本轮没了</span>
+    </button>
+    <button type="button" class="compare-card df-remaining-card" data-quick-status="remaining">
+      <span class="compare-card-num">${counts.remaining}</span>
+      <span class="compare-card-label">还留着</span>
+      <span class="compare-card-sub">原位 ${counts.samePosition} 条 · 挪位 ${counts.moved} 条</span>
+    </button>`;
+
+  // 三类条数对账：新出现 + 还留着 必须等于本轮总条数；不再出现 + 还留着 必须等于基线总条数
+  const addsUp = counts.added + counts.remaining === counts.currentTotal
+    && counts.removed + counts.remaining === counts.baselineTotal;
+  const checkBox = el('compare-check');
+  checkBox.textContent = `对账：新出现 ${counts.added} ＋ 还留着 ${counts.remaining} ＝ 本轮 ${counts.currentTotal} 条；`
+    + `不再出现 ${counts.removed} ＋ 还留着 ${counts.remaining} ＝ 基线 ${counts.baselineTotal} 条。`
+    + `每条命中只归入其中一类，互不重复。`;
+  checkBox.className = `compare-check ${addsUp ? 'ok' : 'bad'}`;
+
+  renderCompareFilters(result);
+  el('compare-status').value = 'all';
+  el('compare-keyword').value = '';
+  renderCompareEntries();
+}
+
+function positionText(entry) {
+  if (entry.status === 'same') return `${entry.baseLineNo} → ${entry.currentLineNo}，位置没变`;
+  if (entry.status === 'moved') {
+    const delta = entry.currentLineNo - entry.baseLineNo;
+    const direction = delta > 0 ? `下移 ${delta} 行` : `上移 ${-delta} 行`;
+    return `${entry.baseLineNo} → ${entry.currentLineNo}，${direction}`;
+  }
+  return '';
+}
+
+function renderCompareEntries() {
+  const result = state.lastComparison;
+  if (!result) return;
+  const status = el('compare-status').value;
+  const ruleCode = el('compare-rule').value;
+  const filePath = el('compare-file').value;
+  const keyword = el('compare-keyword').value.trim().toLowerCase();
+
+  const matchStatus = (entry) => {
+    if (status === 'all') return true;
+    if (status === 'remaining') return entry.status === 'same' || entry.status === 'moved';
+    return entry.status === status;
+  };
+
+  const rows = result.diff.entries.filter((entry) => {
+    if (!matchStatus(entry)) return false;
+    if (ruleCode && entry.code !== ruleCode) return false;
+    if (filePath && entry.path !== filePath) return false;
+    if (keyword) {
+      const haystack = `${entry.code} ${entry.ruleName} ${entry.path} ${entry.baseLineText} ${entry.currentLineText}`.toLowerCase();
+      if (!haystack.includes(keyword)) return false;
+    }
+    return true;
+  });
+
+  const body = el('compare-body');
+  body.innerHTML = rows.map((entry) => {
+    const meta = diffMeta(entry.status);
+    const baseLine = entry.baseLineNo ? entry.baseLineNo : '—';
+    const currentLine = entry.currentLineNo ? entry.currentLineNo : '—';
+    const shownText = entry.status === 'removed' ? entry.baseLineText : entry.currentLineText;
+    let positionNote = '';
+    if (entry.status === 'same') positionNote = '位置没变';
+    if (entry.status === 'moved') positionNote = positionText(entry);
+    if ((entry.status === 'same' || entry.status === 'moved') && entry.lineTextChanged) {
+      positionNote += positionNote ? '；行内容已变' : '行内容已变';
+    }
+    return `<tr>
+      <td><span class="diff-tag ${meta.className}">${meta.label}</span>${positionNote ? `<div class="pos-note">${escapeHtml(positionNote)}</div>` : ''}</td>
+      <td class="mono">${escapeHtml(entry.code)}</td>
+      <td>${entry.level ? `<span class="tag ${levelClass(entry.level)}">${escapeHtml(entry.level)}</span>` : ''}</td>
+      <td class="mono">${escapeHtml(entry.path)}</td>
+      <td class="mono">${baseLine}</td>
+      <td class="mono">${currentLine}</td>
+      <td class="mono line-cell">${escapeHtml(shownText)}</td>
+    </tr>`;
+  }).join('');
+  el('compare-empty').classList.toggle('hidden', rows.length > 0);
+}
+
 // 列表上的操作用事件委托统一处理，列表重绘之后不需要重新绑定
 document.addEventListener('click', async (event) => {
   const node = event.target.closest('button');
@@ -463,6 +726,22 @@ document.addEventListener('click', async (event) => {
     } catch (err) {
       notify(err.message, 'error');
     }
+    return;
+  }
+
+  if (node.dataset.baselineCompare) {
+    await runCompare(node.dataset.baselineCompare);
+    return;
+  }
+
+  if (node.dataset.baselineDelete) {
+    await removeBaseline(node.dataset.baselineDelete);
+    return;
+  }
+
+  if (node.dataset.quickStatus) {
+    el('compare-status').value = node.dataset.quickStatus;
+    renderCompareEntries();
   }
 });
 
@@ -505,6 +784,19 @@ el('file-filter-reset').addEventListener('click', () => {
   loadFiles().catch((err) => notify(err.message, 'error'));
 });
 el('scan-run').addEventListener('click', runScan);
+el('baseline-save').addEventListener('click', saveCurrentBaseline);
+el('baseline-compare').addEventListener('click', () => runCompare().catch((err) => notify(err.message, 'error')));
+el('baseline-refresh').addEventListener('click', () => {
+  clearNotice();
+  loadBaselines().catch((err) => notify(err.message, 'error'));
+});
+el('compare-close').addEventListener('click', () => {
+  el('compare-box').classList.add('hidden');
+});
+el('compare-status').addEventListener('change', renderCompareEntries);
+el('compare-rule').addEventListener('change', renderCompareEntries);
+el('compare-file').addEventListener('change', renderCompareEntries);
+el('compare-keyword').addEventListener('input', renderCompareEntries);
 el('rule-filter-level').addEventListener('change', () => {
   loadRules().catch((err) => notify(err.message, 'error'));
 });
@@ -515,9 +807,10 @@ el('operator').addEventListener('change', () => {
   window.localStorage.setItem(OPERATOR_KEY, currentOperator());
 });
 
-// 页面打开时先把规则与文件都拉一遍，扫描的范围下拉依赖这两份清单
+// 页面打开时先把规则与文件都拉一遍，扫描的范围下拉依赖这两份清单；基线清单也一起拉
 restoreOperator();
 loadHealth();
 loadRules()
   .then(loadFiles)
+  .then(loadBaselines)
   .catch((err) => notify(err.message, 'error'));

@@ -383,3 +383,158 @@ label.full input {
   display: flex;
   gap: 10px;
 }
+
+/* ───────── 基线与对比 ───────── */
+
+.baseline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fafc;
+}
+
+.baseline-bar .baseline-name {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.baseline-bar .baseline-name input {
+  width: 200px;
+}
+
+.baseline-bar select {
+  min-width: 220px;
+}
+
+.compare-box {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #c7d8f5;
+  border-radius: 8px;
+  background: #f7faff;
+}
+
+.compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.compare-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compare-meta {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.compare-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.compare-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 150px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.compare-card:hover {
+  border-color: var(--accent);
+}
+
+.compare-card-num {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.compare-card-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.compare-card-sub {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.df-added-card .compare-card-num { color: var(--ok); }
+.df-removed-card .compare-card-num { color: var(--danger); }
+.df-remaining-card .compare-card-num { color: var(--accent); }
+
+.compare-check {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.compare-check.ok { color: var(--ok); }
+.compare-check.bad { color: var(--danger); font-weight: 600; }
+
+.compare-filter {
+  margin-bottom: 8px;
+}
+
+table.compare-grid {
+  min-width: 860px;
+  background: #fff;
+}
+
+.diff-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.diff-tag.df-added {
+  background: #eefaf3;
+  color: var(--ok);
+}
+
+.diff-tag.df-removed {
+  background: #fdeeee;
+  color: var(--danger);
+}
+
+.diff-tag.df-same {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.diff-tag.df-moved {
+  background: var(--warn-bg);
+  color: #8a5a00;
+}
+
+.pos-note {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: normal;
+}

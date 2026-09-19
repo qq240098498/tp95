@@ -139,6 +139,58 @@
       <p class="scan-meta" id="scan-meta">还没有扫过，点右上角扫一遍</p>
       <p class="scan-warning hidden" id="scan-warning"></p>
       <div class="summary hidden" id="scan-summary"></div>
+
+      <div class="baseline-bar">
+        <label class="baseline-name" data-field="baselineName">把这一轮存成基线
+          <input id="baseline-name" placeholder="给基线起个名字，例如 九月第一周" maxlength="40">
+        </label>
+        <button type="button" id="baseline-save">存为基线</button>
+        <select id="baseline-pick"><option value="">选择一版基线来对比</option></select>
+        <button type="button" id="baseline-compare">按基线对比本轮</button>
+      </div>
+
+      <div class="compare-box hidden" id="compare-box">
+        <div class="compare-head">
+          <h3 id="compare-title">按基线对比</h3>
+          <button type="button" id="compare-close" class="ghost">收起对比</button>
+        </div>
+        <p class="compare-meta" id="compare-meta"></p>
+        <p class="scan-warning hidden" id="compare-warning"></p>
+        <div class="compare-cards" id="compare-cards"></div>
+        <p class="compare-check" id="compare-check"></p>
+        <div class="compare-filter filters">
+          <span>下钻查看：</span>
+          <select id="compare-status">
+            <option value="all">全部条目</option>
+            <option value="added">只看新出现</option>
+            <option value="removed">只看不再出现</option>
+            <option value="remaining">只看还留着</option>
+            <option value="same">只看位置没变</option>
+            <option value="moved">只看挪了位置</option>
+          </select>
+          <select id="compare-rule"><option value="">全部规则</option></select>
+          <select id="compare-file"><option value="">全部文件</option></select>
+          <input id="compare-keyword" placeholder="搜索规则、文件或那一行" maxlength="40">
+        </div>
+        <div class="table-wrap">
+          <table class="grid compare-grid">
+            <thead>
+              <tr>
+                <th>对比结论</th>
+                <th>规则编码</th>
+                <th>级别</th>
+                <th>文件</th>
+                <th>基线行号</th>
+                <th>本轮行号</th>
+                <th>那一行的内容</th>
+              </tr>
+            </thead>
+            <tbody id="compare-body"></tbody>
+          </table>
+        </div>
+        <p class="empty-tip hidden" id="compare-empty">当前筛选条件下没有条目</p>
+      </div>
+
       <div class="table-wrap">
         <table class="grid">
           <thead>
@@ -155,6 +207,32 @@
         </table>
       </div>
       <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>基线版本</h2>
+        <div class="filters">
+          <button type="button" id="baseline-refresh" class="ghost">刷新</button>
+        </div>
+      </div>
+      <p class="scan-meta">每版基线都是某一轮命中清单的快照，记下保存时刻、操作者与当时的命中条数，供之后扫描时对比增减。</p>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th>名字</th>
+              <th>保存时刻</th>
+              <th>操作者</th>
+              <th>命中条数</th>
+              <th>扫描范围</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="baseline-body"></tbody>
+        </table>
+      </div>
+      <p class="empty-tip hidden" id="baseline-empty">还没有存过基线，先在上面扫一遍再存一版</p>
     </section>
   </main>
 

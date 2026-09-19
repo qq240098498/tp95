@@ -14,6 +14,8 @@ const MAX_PATTERN_LENGTH = 60;
 const MAX_NOTE_LENGTH = 200;
 const MAX_PATH_LENGTH = 120;
 const MAX_CONTENT_LENGTH = 4000;
+const MAX_BASELINE_NAME_LENGTH = 40;
+const MAX_OPERATOR_LENGTH = 40;
 
 // 检查规则的初始数据。十二条规则里有两条是停用的，
 // 有一条启用的规则在现有文件里一条命中都没有，用来观察从未命中的规则
@@ -335,6 +337,61 @@ function normalizeFile(item, fallbackIndex) {
   };
 }
 
+// 把一版基线整理成固定结构。基线是某一轮命中清单的快照，
+// 只留下对比用得着的字段（规则、文件、行号、那一行），不存规则与文件的内部编号，
+// 规则或文件后来被删改过，旧基线依然能读、能对比
+function normalizeBaseline(item, fallbackIndex) {
+  const source = item && typeof item === 'object' ? item : {};
+  const savedAt = typeof source.savedAt === 'string' && source.savedAt ? source.savedAt : new Date().toISOString();
+  const scope = source.scope && typeof source.scope === 'object' ? source.scope : {};
+  const textOf = (value) => (typeof value === 'string' ? value : '');
+  const numOf = (value) => {
+    const num = Number(value);
+    return Number.isInteger(num) && num >= 1 ? num : 0;
+  };
+
+  const seen = new Set();
+  const hits = [];
+  (Array.isArray(source.hits) ? source.hits : []).forEach((raw) => {
+    if (!raw || typeof raw !== 'object') return;
+    const code = textOf(raw.code).trim();
+    const ruleName = textOf(raw.ruleName).trim();
+    const level = LEVELS.includes(raw.level) ? raw.level : '';
+    const filePath = textOf(raw.path).trim();
+    const lineNo = numOf(raw.lineNo);
+    // 同一行同一条规则只算一条，损坏数据里的重复项直接丢掉
+    const dedupeKey = `${code} ${filePath} ${lineNo}`;
+    if (!code || !filePath || !lineNo || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    hits.push({
+      code,
+      ruleName,
+      level,
+      path: filePath,
+      lineNo,
+      lineText: textOf(raw.lineText).trim(),
+    });
+  });
+
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `baseline-restored-${fallbackIndex + 1}`,
+    name: textOf(source.name).trim(),
+    operator: textOf(source.operator).trim(),
+    savedAt,
+    scope: {
+      ruleId: textOf(scope.ruleId),
+      fileId: textOf(scope.fileId),
+      level: textOf(scope.level),
+      ruleCode: textOf(scope.ruleCode),
+      filePath: textOf(scope.filePath),
+    },
+    rulesUsed: numOf(source.rulesUsed),
+    filesInScope: numOf(source.filesInScope),
+    total: hits.length,
+    hits,
+  };
+}
+
 // 整份数据保证规则与文件结构一致，缺编号、缺名称、缺路径的条目一律丢掉
 function normalize(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
@@ -368,7 +425,18 @@ function normalize(raw) {
     files.push(file);
   });
 
-  return { rules, files };
+  // 基线没有初始数据：旧数据文件里没有这一段时就是空清单，不会回落到任何种子
+  const seenBaselineIds = new Set();
+  const baselines = [];
+  (Array.isArray(source.baselines) ? source.baselines : []).forEach((item, index) => {
+    const baseline = normalizeBaseline(item, index);
+    if (!baseline.id || !baseline.name || seenBaselineIds.has(baseline.id)) return;
+    seenBaselineIds.add(baseline.id);
+    baselines.push(baseline);
+  });
+  baselines.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : (a.id < b.id ? 1 : -1)));
+
+  return { rules, files, baselines };
 }
 
 // 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
@@ -377,7 +445,7 @@ function load() {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return normalize(JSON.parse(raw));
   } catch (err) {
-    const data = { rules: seedRules(), files: seedFiles() };
+    const data = { rules: seedRules(), files: seedFiles(), baselines: [] };
     save(data);
     return data;
   }
@@ -399,6 +467,7 @@ module.exports = {
   normalize,
   normalizeRule,
   normalizeFile,
+  normalizeBaseline,
   LEVELS,
   STATUSES,
   FILE_TYPES,
@@ -408,5 +477,7 @@ module.exports = {
   MAX_NOTE_LENGTH,
   MAX_PATH_LENGTH,
   MAX_CONTENT_LENGTH,
+  MAX_BASELINE_NAME_LENGTH,
+  MAX_OPERATOR_LENGTH,
   DATA_FILE,
 };

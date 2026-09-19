@@ -107,6 +107,50 @@ app.post('/api/scan', (req, res) => {
   }
 });
 
+// 基线清单：每版只带概要（名字、保存时刻、操作者、命中条数）
+app.get('/api/baselines', (_req, res) => {
+  try {
+    res.json(api.listBaselines());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 把当前范围扫一遍并存成一版基线
+app.post('/api/baselines', (req, res) => {
+  try {
+    res.status(201).json(api.saveBaseline(req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 单版基线的完整快照（含全部命中）
+app.get('/api/baselines/:id', (req, res) => {
+  try {
+    res.json(api.getBaseline(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 按基线对比本轮：默认沿用基线当时的扫描范围
+app.post('/api/baselines/:id/compare', (req, res) => {
+  try {
+    res.json(api.compareBaseline(req.params.id, req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.delete('/api/baselines/:id', (req, res) => {
+  try {
+    res.json(api.deleteBaseline(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // 未匹配到的接口路径统一返回说明，避免前端拿到一串页面内容
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: { code: 'API_NOT_FOUND', message: '接口不存在', field: '' } });
