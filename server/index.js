@@ -107,6 +107,44 @@ app.post('/api/scan', (req, res) => {
   }
 });
 
+// 基线：把某一轮扫描结果存下来，之后每一轮都能拿它来对比
+app.get('/api/baselines', (_req, res) => {
+  res.json(api.listBaselines());
+});
+
+app.post('/api/baselines', (req, res) => {
+  try {
+    res.status(201).json(api.createBaseline(req.body));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.get('/api/baselines/:id', (req, res) => {
+  try {
+    res.json(api.getBaseline(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.delete('/api/baselines/:id', (req, res) => {
+  try {
+    res.json(api.deleteBaseline(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// 按基线对比：用基线当时圈定的范围重新扫一遍当前数据，逐条对上
+app.get('/api/baselines/:id/compare', (req, res) => {
+  try {
+    res.json(api.compareBaseline(req.params.id));
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // 未匹配到的接口路径统一返回说明，避免前端拿到一串页面内容
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: { code: 'API_NOT_FOUND', message: '接口不存在', field: '' } });

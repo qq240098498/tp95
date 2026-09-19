@@ -134,8 +134,20 @@
           <select id="scan-file"><option value="">全部文件</option></select>
           <select id="scan-level"><option value="">全部级别</option></select>
           <button type="button" id="scan-run">按规则扫一遍</button>
+          <button type="button" id="baseline-open-form" class="ghost" disabled>把这一轮存为基线</button>
         </div>
       </div>
+      <form class="entry-form hidden" id="baseline-form" autocomplete="off">
+        <h3>把这一轮存为基线</h3>
+        <div class="form-row">
+          <label data-field="baselineName">基线名字<input id="baseline-name" placeholder="例如 上线前那一轮" maxlength="40"></label>
+          <p class="form-hint" id="baseline-hint"></p>
+        </div>
+        <div class="form-actions">
+          <button type="submit">存成基线</button>
+          <button type="button" id="baseline-cancel" class="ghost">取消</button>
+        </div>
+      </form>
       <p class="scan-meta" id="scan-meta">还没有扫过，点右上角扫一遍</p>
       <p class="scan-warning hidden" id="scan-warning"></p>
       <div class="summary hidden" id="scan-summary"></div>
@@ -155,6 +167,90 @@
         </table>
       </div>
       <p class="empty-tip hidden" id="hit-empty">这一轮没有命中</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>基线</h2>
+        <div class="filters">
+          <button type="button" id="baseline-refresh" class="ghost">刷新</button>
+        </div>
+      </div>
+      <p class="panel-tip">扫完一轮可以在上面把结果存成基线；之后再扫一轮，点「对比」就能看出新出现、不再出现与还在的条目各有多少</p>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th>名字</th>
+              <th>保存时间</th>
+              <th>保存人</th>
+              <th>总条数</th>
+              <th>当时扫的范围</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="baseline-body"></tbody>
+        </table>
+      </div>
+      <p class="empty-tip hidden" id="baseline-empty">还没有存过基线，先扫一轮再存</p>
+
+      <div class="compare-area hidden" id="compare-area">
+        <div class="compare-head">
+          <h3 id="compare-title">对比结果</h3>
+          <button type="button" id="compare-close" class="ghost">收起</button>
+        </div>
+        <div class="summary" id="compare-summary"></div>
+        <div class="filters compare-filters">
+          <select id="compare-filter-status">
+            <option value="">全部类别</option>
+            <option value="added">只看新出现</option>
+            <option value="removed">只看不再出现</option>
+            <option value="kept">只看还在</option>
+          </select>
+          <select id="compare-filter-rule"><option value="">全部规则</option></select>
+          <select id="compare-filter-file"><option value="">全部文件</option></select>
+        </div>
+        <div class="compare-groups">
+          <div>
+            <h4>按规则</h4>
+            <div class="table-wrap">
+              <table class="grid">
+                <thead>
+                  <tr><th>规则编码</th><th>新出现</th><th>不再出现</th><th>还在</th><th>操作</th></tr>
+                </thead>
+                <tbody id="compare-rule-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h4>按文件</h4>
+            <div class="table-wrap">
+              <table class="grid">
+                <thead>
+                  <tr><th>文件</th><th>新出现</th><th>不再出现</th><th>还在</th><th>操作</th></tr>
+                </thead>
+                <tbody id="compare-file-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>类别</th>
+                <th>规则编码</th>
+                <th>规则名称</th>
+                <th>文件</th>
+                <th>行号（基线 → 这一轮）</th>
+                <th>那一行的内容</th>
+              </tr>
+            </thead>
+            <tbody id="compare-body"></tbody>
+          </table>
+        </div>
+        <p class="empty-tip hidden" id="compare-empty">当前筛选条件下没有条目</p>
+      </div>
     </section>
   </main>
 

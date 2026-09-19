@@ -12,6 +12,9 @@ const state = {
   editingRuleId: '',
   editingFileId: '',
   lastScan: null,
+  lastScanScope: null,
+  baselines: [],
+  compare: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -350,7 +353,7 @@ async function submitFile(event) {
   }
 }
 
-// 扫一遍，把概要与命中清单都画出来
+// 扫一遍，把概要与命中清单都画出来；同时记下这一轮的扫描范围，存基线时原样带上
 async function runScan() {
   clearNotice();
   const body = {
@@ -361,6 +364,8 @@ async function runScan() {
   try {
     const result = await request('/api/scan', { method: 'POST', body: JSON.stringify(body) });
     state.lastScan = result;
+    state.lastScanScope = body;
+    el('baseline-open-form').disabled = false;
     renderScan(result);
   } catch (err) {
     notify(err.message, 'error');
@@ -405,6 +410,162 @@ function renderScan(result) {
       <td class="mono line-cell">${escapeHtml(hit.lineText)}</td>
     </tr>`).join('');
   el('hit-empty').classList.toggle('hidden', result.hits.length > 0);
+}
+
+// ---------- 基线：存起来、列出来、删掉 ----------
+
+async function loadBaselines() {
+  const payload = await request('/api/baselines');
+  state.baselines = payload.baselines || [];
+  renderBaselines();
+}
+
+function renderBaselines() {
+  const body = el('baseline-body');
+  body.innerHTML = state.baselines.map((item) => `<tr>
+      <td>${escapeHtml(item.name)}</td>
+      <td class="mono">${escapeHtml(formatTime(item.createdAt))}</td>
+      <td>${escapeHtml(item.createdBy)}</td>
+      <td class="mono">${item.total} 条</td>
+      <td class="note-cell">${escapeHtml(item.scopeText)}</td>
+      <td class="actions">
+        <button type="button" class="link" data-baseline-compare="${escapeHtml(item.id)}">对比</button>
+        <button type="button" class="link danger" data-baseline-delete="${escapeHtml(item.id)}">删除</button>
+      </td>
+    </tr>`).join('');
+  el('baseline-empty').classList.toggle('hidden', state.baselines.length > 0);
+}
+
+function openBaselineForm() {
+  if (!state.lastScan) return;
+  clearNotice();
+  const operator = currentOperator() || '未留名';
+  el('baseline-hint').textContent = `将以「${operator}」的名义保存，这一轮一共 ${state.lastScan.summary.total} 条命中`;
+  el('baseline-name').value = '';
+  el('baseline-form').classList.remove('hidden');
+  el('baseline-name').focus();
+}
+
+function closeBaselineForm() {
+  el('baseline-form').classList.add('hidden');
+  clearFieldMarks();
+}
+
+// 把页面上这一轮扫描结果原样存成基线，范围也用扫描时选的那一套
+async function submitBaseline(event) {
+  event.preventDefault();
+  clearNotice();
+  clearFieldMarks();
+  if (!state.lastScan) return;
+  const payload = {
+    name: el('baseline-name').value,
+    createdBy: currentOperator(),
+    scope: state.lastScanScope,
+    hits: state.lastScan.hits,
+  };
+  try {
+    await request('/api/baselines', { method: 'POST', body: JSON.stringify(payload) });
+    notify('基线已保存', 'ok');
+    closeBaselineForm();
+    await loadBaselines();
+  } catch (err) {
+    notify(err.message, 'error');
+    markField(err.field);
+  }
+}
+
+// ---------- 按基线对比 ----------
+
+const COMPARE_STATUS_TEXT = { added: '新出现', removed: '不再出现', kept: '还在' };
+
+async function runCompare(id) {
+  clearNotice();
+  try {
+    const payload = await request(`/api/baselines/${encodeURIComponent(id)}/compare`);
+    state.compare = { baselineId: id, data: payload, filterStatus: '', filterCode: '', filterPath: '' };
+    renderCompare();
+    el('compare-area').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    notify(err.message, 'error');
+  }
+}
+
+function closeCompare() {
+  state.compare = null;
+  el('compare-area').classList.add('hidden');
+}
+
+function renderCompare() {
+  const compare = state.compare;
+  if (!compare) return;
+  const { data } = compare;
+  const { summary, baseline } = data;
+
+  el('compare-title').textContent = `与基线「${baseline.name}」对比`;
+  el('compare-summary').innerHTML = `
+    <div class="summary-line">基线「${escapeHtml(baseline.name)}」：${escapeHtml(formatTime(baseline.createdAt))} 由 ${escapeHtml(baseline.createdBy)} 保存，当时一共 ${baseline.total} 条（${escapeHtml(baseline.scopeText)}）</div>
+    <div class="summary-line"><strong>这一轮一共 ${summary.currentTotal} 条</strong>　<span class="tag st-added">新出现 ${summary.added} 条</span>　<span class="tag st-removed">不再出现 ${summary.removed} 条</span>　<span class="tag st-kept">还在 ${summary.kept} 条</span>${summary.moved ? `　<span class="tag st-moved">其中位置变了 ${summary.moved} 条</span>` : ''}</div>
+    <div class="summary-line">对账：新出现 ${summary.added} + 还在 ${summary.kept} = 这一轮 ${summary.currentTotal} 条；不再出现 ${summary.removed} + 还在 ${summary.kept} = 基线 ${summary.baselineTotal} 条</div>`;
+
+  const ruleSelect = el('compare-filter-rule');
+  ruleSelect.innerHTML = '<option value="">全部规则</option>'
+    + data.byRule.map((item) => `<option value="${escapeHtml(item.code)}">${escapeHtml(item.code)} ${escapeHtml(item.ruleName)}</option>`).join('');
+  if (data.byRule.some((item) => item.code === compare.filterCode)) ruleSelect.value = compare.filterCode;
+
+  const fileSelect = el('compare-filter-file');
+  fileSelect.innerHTML = '<option value="">全部文件</option>'
+    + data.byFile.map((item) => `<option value="${escapeHtml(item.path)}">${escapeHtml(item.path)}</option>`).join('');
+  if (data.byFile.some((item) => item.path === compare.filterPath)) fileSelect.value = compare.filterPath;
+
+  el('compare-filter-status').value = compare.filterStatus;
+
+  el('compare-rule-body').innerHTML = data.byRule.map((item) => `<tr>
+      <td class="mono">${escapeHtml(item.code)}</td>
+      <td class="mono">${item.added || ''}</td>
+      <td class="mono">${item.removed || ''}</td>
+      <td class="mono">${item.kept || ''}</td>
+      <td class="actions"><button type="button" class="link" data-compare-rule="${escapeHtml(item.code)}">只看这条规则</button></td>
+    </tr>`).join('');
+
+  el('compare-file-body').innerHTML = data.byFile.map((item) => `<tr>
+      <td class="mono">${escapeHtml(item.path)}</td>
+      <td class="mono">${item.added || ''}</td>
+      <td class="mono">${item.removed || ''}</td>
+      <td class="mono">${item.kept || ''}</td>
+      <td class="actions"><button type="button" class="link" data-compare-file="${escapeHtml(item.path)}">只看这个文件</button></td>
+    </tr>`).join('');
+
+  renderCompareItems();
+  el('compare-area').classList.remove('hidden');
+}
+
+// 行号怎么写：新出现的只有这一轮的位置，不再出现的只有基线的位置，
+// 还在的原样给行号，位置变了就把两轮的行号都写出来
+function compareLineText(item) {
+  if (item.status === 'added') return `— → ${item.lineNo}`;
+  if (item.status === 'removed') return `${item.baseLineNo} → —`;
+  if (item.moved) return `${item.baseLineNo} → ${item.lineNo}`;
+  return `${item.lineNo}`;
+}
+
+function renderCompareItems() {
+  const compare = state.compare;
+  if (!compare) return;
+  const items = compare.data.items.filter((item) => {
+    if (compare.filterStatus && item.status !== compare.filterStatus) return false;
+    if (compare.filterCode && item.code !== compare.filterCode) return false;
+    if (compare.filterPath && item.path !== compare.filterPath) return false;
+    return true;
+  });
+  el('compare-body').innerHTML = items.map((item) => `<tr>
+      <td><span class="tag st-${item.status}">${COMPARE_STATUS_TEXT[item.status]}</span>${item.moved ? ' <span class="tag st-moved">位置变了</span>' : ''}</td>
+      <td class="mono">${escapeHtml(item.code)}</td>
+      <td>${escapeHtml(item.ruleName)}</td>
+      <td class="mono">${escapeHtml(item.path)}</td>
+      <td class="mono">${compareLineText(item)}</td>
+      <td class="mono line-cell">${escapeHtml(item.lineText)}</td>
+    </tr>`).join('');
+  el('compare-empty').classList.toggle('hidden', items.length > 0);
 }
 
 // 列表上的操作用事件委托统一处理，列表重绘之后不需要重新绑定
@@ -463,6 +624,43 @@ document.addEventListener('click', async (event) => {
     } catch (err) {
       notify(err.message, 'error');
     }
+    return;
+  }
+
+  if (node.dataset.baselineCompare) {
+    await runCompare(node.dataset.baselineCompare);
+    return;
+  }
+
+  if (node.dataset.baselineDelete) {
+    clearNotice();
+    const found = state.baselines.find((item) => item.id === node.dataset.baselineDelete);
+    if (!window.confirm(`确定删除基线「${found ? found.name : ''}」吗？`)) return;
+    try {
+      await request(`/api/baselines/${encodeURIComponent(node.dataset.baselineDelete)}`, { method: 'DELETE' });
+      if (state.compare && state.compare.baselineId === node.dataset.baselineDelete) closeCompare();
+      notify('基线已删除', 'ok');
+      await loadBaselines();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+    return;
+  }
+
+  // 分组表里的「只看这条规则 / 只看这个文件」：把明细筛到对应的一行
+  if (node.dataset.compareRule) {
+    if (!state.compare) return;
+    state.compare.filterCode = node.dataset.compareRule;
+    el('compare-filter-rule').value = state.compare.filterCode;
+    renderCompareItems();
+    return;
+  }
+
+  if (node.dataset.compareFile) {
+    if (!state.compare) return;
+    state.compare.filterPath = node.dataset.compareFile;
+    el('compare-filter-file').value = state.compare.filterPath;
+    renderCompareItems();
   }
 });
 
@@ -505,6 +703,29 @@ el('file-filter-reset').addEventListener('click', () => {
   loadFiles().catch((err) => notify(err.message, 'error'));
 });
 el('scan-run').addEventListener('click', runScan);
+el('baseline-open-form').addEventListener('click', openBaselineForm);
+el('baseline-cancel').addEventListener('click', closeBaselineForm);
+el('baseline-form').addEventListener('submit', submitBaseline);
+el('baseline-refresh').addEventListener('click', () => {
+  clearNotice();
+  loadBaselines().catch((err) => notify(err.message, 'error'));
+});
+el('compare-close').addEventListener('click', closeCompare);
+el('compare-filter-status').addEventListener('change', () => {
+  if (!state.compare) return;
+  state.compare.filterStatus = el('compare-filter-status').value;
+  renderCompareItems();
+});
+el('compare-filter-rule').addEventListener('change', () => {
+  if (!state.compare) return;
+  state.compare.filterCode = el('compare-filter-rule').value;
+  renderCompareItems();
+});
+el('compare-filter-file').addEventListener('change', () => {
+  if (!state.compare) return;
+  state.compare.filterPath = el('compare-filter-file').value;
+  renderCompareItems();
+});
 el('rule-filter-level').addEventListener('change', () => {
   loadRules().catch((err) => notify(err.message, 'error'));
 });
@@ -515,9 +736,10 @@ el('operator').addEventListener('change', () => {
   window.localStorage.setItem(OPERATOR_KEY, currentOperator());
 });
 
-// 页面打开时先把规则与文件都拉一遍，扫描的范围下拉依赖这两份清单
+// 页面打开时先把规则、文件与基线都拉一遍，扫描的范围下拉依赖前两份清单
 restoreOperator();
 loadHealth();
 loadRules()
   .then(loadFiles)
+  .then(loadBaselines)
   .catch((err) => notify(err.message, 'error'));

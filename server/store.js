@@ -14,6 +14,9 @@ const MAX_PATTERN_LENGTH = 60;
 const MAX_NOTE_LENGTH = 200;
 const MAX_PATH_LENGTH = 120;
 const MAX_CONTENT_LENGTH = 4000;
+const MAX_BASELINE_NAME_LENGTH = 40;
+const MAX_BASELINE_OPERATOR_LENGTH = 40;
+const MAX_BASELINE_HITS = 5000;
 
 // 检查规则的初始数据。十二条规则里有两条是停用的，
 // 有一条启用的规则在现有文件里一条命中都没有，用来观察从未命中的规则
@@ -335,6 +338,49 @@ function normalizeFile(item, fallbackIndex) {
   };
 }
 
+// 基线里存的一条命中：身份靠规则编码、文件路径与行内容，行号只表示当时的位置
+function normalizeBaselineHit(item) {
+  const source = item && typeof item === 'object' ? item : {};
+  const code = typeof source.code === 'string' ? source.code.trim() : '';
+  const filePath = typeof source.path === 'string' ? source.path.trim() : '';
+  const lineNo = Number.isInteger(source.lineNo) && source.lineNo > 0 ? source.lineNo : 0;
+  if (!code || !filePath || !lineNo) return null;
+  return {
+    code,
+    ruleName: typeof source.ruleName === 'string' ? source.ruleName : '',
+    level: LEVELS.includes(source.level) ? source.level : LEVELS[0],
+    path: filePath,
+    fileType: typeof source.fileType === 'string' ? source.fileType : '',
+    lineNo,
+    lineText: typeof source.lineText === 'string' ? source.lineText : '',
+  };
+}
+
+// 把一版基线整理成固定结构：名字、保存人、保存时刻、当时的扫描范围与命中快照
+function normalizeBaseline(item, fallbackIndex) {
+  const source = item && typeof item === 'object' ? item : {};
+  const createdAt = typeof source.createdAt === 'string' && source.createdAt ? source.createdAt : new Date().toISOString();
+  const scope = source.scope && typeof source.scope === 'object' ? source.scope : {};
+  const hits = (Array.isArray(source.hits) ? source.hits : [])
+    .map(normalizeBaselineHit)
+    .filter(Boolean)
+    .slice(0, MAX_BASELINE_HITS);
+  return {
+    id: typeof source.id === 'string' && source.id ? source.id : `baseline-restored-${fallbackIndex + 1}`,
+    name: typeof source.name === 'string' && source.name.trim() ? source.name.trim() : `未命名基线 ${fallbackIndex + 1}`,
+    createdBy: typeof source.createdBy === 'string' && source.createdBy.trim() ? source.createdBy.trim() : '未留名',
+    createdAt,
+    scope: {
+      ruleId: typeof scope.ruleId === 'string' ? scope.ruleId : '',
+      fileId: typeof scope.fileId === 'string' ? scope.fileId : '',
+      level: LEVELS.includes(scope.level) ? scope.level : '',
+    },
+    scopeText: typeof source.scopeText === 'string' && source.scopeText ? source.scopeText : '全部规则 · 全部文件 · 全部级别',
+    total: hits.length,
+    hits,
+  };
+}
+
 // 整份数据保证规则与文件结构一致，缺编号、缺名称、缺路径的条目一律丢掉
 function normalize(raw) {
   const source = raw && typeof raw === 'object' ? raw : {};
@@ -368,7 +414,17 @@ function normalize(raw) {
     files.push(file);
   });
 
-  return { rules, files };
+  const rawBaselines = Array.isArray(source.baselines) ? source.baselines : [];
+  const seenBaselineIds = new Set();
+  const baselines = [];
+  rawBaselines.forEach((item, index) => {
+    const baseline = normalizeBaseline(item, index);
+    if (seenBaselineIds.has(baseline.id)) return;
+    seenBaselineIds.add(baseline.id);
+    baselines.push(baseline);
+  });
+
+  return { rules, files, baselines };
 }
 
 // 读取数据文件：文件缺失或内容损坏时回落到初始数据并立刻补写
@@ -377,7 +433,7 @@ function load() {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     return normalize(JSON.parse(raw));
   } catch (err) {
-    const data = { rules: seedRules(), files: seedFiles() };
+    const data = { rules: seedRules(), files: seedFiles(), baselines: [] };
     save(data);
     return data;
   }
@@ -399,6 +455,7 @@ module.exports = {
   normalize,
   normalizeRule,
   normalizeFile,
+  normalizeBaseline,
   LEVELS,
   STATUSES,
   FILE_TYPES,
@@ -408,5 +465,8 @@ module.exports = {
   MAX_NOTE_LENGTH,
   MAX_PATH_LENGTH,
   MAX_CONTENT_LENGTH,
+  MAX_BASELINE_NAME_LENGTH,
+  MAX_BASELINE_OPERATOR_LENGTH,
+  MAX_BASELINE_HITS,
   DATA_FILE,
 };

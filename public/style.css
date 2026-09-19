@@ -383,3 +383,89 @@ label.full input {
   display: flex;
   gap: 10px;
 }
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.panel-tip {
+  margin: -4px 0 10px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+.form-hint {
+  margin: 0;
+  align-self: flex-end;
+  padding-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+/* 对比结果：三类条目各有颜色，位置变了单独标出来 */
+.st-added {
+  background: #eefaf3;
+  color: var(--ok);
+}
+
+.st-removed {
+  background: #fdeeee;
+  color: var(--danger);
+}
+
+.st-kept {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.st-moved {
+  background: var(--warn-bg);
+  color: #8a5a00;
+}
+
+.compare-area {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.compare-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compare-filters {
+  margin: 0 0 12px;
+}
+
+.compare-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.compare-groups h4 {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.compare-groups table.grid {
+  min-width: 0;
+}
+
+.summary .tag {
+  font-size: 12px;
+}
